@@ -1,0 +1,37 @@
+# ─── SINEAD Hotel Management System ─────────────────────────────────────────
+# .gitignore
+
+# ─── Environment & Config ───────────────────────────────────────────────────
+.env
+config/local.php
+
+# ─── Logs ───────────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ─── IDE / Editor ───────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ─── Dependencies ───────────────────────────────────────────────────────────
+vendor/
+node_modules/
+
+# ─── OS Files ───────────────────────────────────────────────────────────────
+.DS_Store
+Desktop.ini
+ehthumbs.db
+
+# ─── Temporary Files ────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.cache
+
+# ─── Presentation Files (not part of source) ────────────────────────────────
+*.pdf
+*.pptx

@@ -1,0 +1,138 @@
+@startuml SINEAD_ER_Diagram
+!theme plain
+skinparam linetype ortho
+skinparam class {
+    BackgroundColor white
+    ArrowColor #2c3e50
+    BorderColor #34495e
+}
+
+entity "users" as users {
+    * id : int <<PK>>
+    --
+    * username : varchar(50) <<UNIQUE>>
+    * password_hash : varchar(255)
+    * full_name : varchar(100)
+    * email : varchar(100)
+    * role : enum('admin','receptionist','housekeeping')
+    * is_active : tinyint(1)
+    last_login : datetime
+    created_at : datetime
+    updated_at : datetime
+}
+
+entity "guests" as guests {
+    * id : int <<PK>>
+    --
+    * first_name : varchar(50)
+    * last_name : varchar(50)
+    * email : varchar(100)
+    * phone : varchar(20)
+    id_document : varchar(50)
+    address : text
+    created_at : datetime
+    updated_at : datetime
+}
+
+entity "rooms" as rooms {
+    * id : int <<PK>>
+    --
+    * room_number : varchar(10) <<UNIQUE>>
+    * type : enum('Standard','Deluxe','Suite')
+    * floor : int
+    * price_per_night : decimal(10,2)
+    * status : enum('Available','Occupied','Maintenance')
+    description : text
+    created_at : datetime
+    updated_at : datetime
+}
+
+entity "reservations" as reservations {
+    * id : int <<PK>>
+    --
+    * guest_id : int <<FK>>
+    * room_id : int <<FK>>
+    * created_by : int <<FK>>
+    * check_in_date : date
+    * check_out_date : date
+    * num_guests : int
+    * status : enum('Confirmed','CheckedIn','CheckedOut','Cancelled')
+    notes : text
+    created_at : datetime
+    updated_at : datetime
+}
+
+entity "invoices" as invoices {
+    * id : int <<PK>>
+    --
+    * reservation_id : int <<FK>>
+    * invoice_number : varchar(20) <<UNIQUE>>
+    * total_amount : decimal(10,2)
+    * amount_paid : decimal(10,2)
+    * status : enum('Unpaid','Partial','Paid')
+    payment_method : enum('Cash','Card','Bank Transfer')
+    notes : text
+    created_at : datetime
+    updated_at : datetime
+}
+
+entity "invoice_items" as invoice_items {
+    * id : int <<PK>>
+    --
+    * invoice_id : int <<FK>>
+    * description : varchar(255)
+    * quantity : int
+    * unit_price : decimal(10,2)
+    * total : decimal(10,2)
+}
+
+entity "housekeeping_tasks" as housekeeping_tasks {
+    * id : int <<PK>>
+    --
+    * room_id : int <<FK>>
+    * assigned_to : int <<FK>>
+    * task_type : enum('Cleaning','Maintenance','Restocking')
+    * status : enum('Pending','InProgress','Completed')
+    * priority : enum('Low','Medium','High')
+    notes : text
+    created_at : datetime
+    completed_at : datetime
+    updated_at : datetime
+}
+
+entity "activity_log" as activity_log {
+    * id : int <<PK>>
+    --
+    * user_id : int <<FK>>
+    * action : varchar(100)
+    details : text
+    ip_address : varchar(45)
+    * created_at : datetime
+}
+
+entity "password_resets" as password_resets {
+    * id : int <<PK>>
+    --
+    * user_id : int <<FK>>
+    * token_hash : varchar(255)
+    * expires_at : datetime
+    used : tinyint(1)
+    * created_at : datetime
+}
+
+' Relationships
+users "1" -- "0..*" activity_log : generates
+users "1" -- "0..*" password_resets : requests
+users "1" -- "0..*" reservations : creates
+users "1" -- "0..*" housekeeping_tasks : assigned to
+
+guests "1" -- "0..*" reservations : makes
+
+rooms "1" -- "0..*" reservations : booked in
+rooms "1" -- "0..*" housekeeping_tasks : requires
+
+reservations "1" -- "0..1" invoices : generates
+
+invoices "1" -- "1..*" invoice_items : contains
+
+@enduml

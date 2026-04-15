@@ -1,0 +1,82 @@
+@startuml SINEAD_Reservation_Lifecylce
+!theme plain
+skinparam sequence {
+    ArrowColor #2c3e50
+    LifeLineBorderColor #34495e
+    LifeLineBackgroundColor #ecf0f1
+    ParticipantBorderColor #34495e
+    ParticipantBackgroundColor white
+}
+
+actor "Receptionist\n(User)" as User
+participant "guests" as GuestsDB
+participant "rooms" as RoomsDB
+participant "reservations" as ResDB
+participant "invoices" as InvoiceDB
+participant "invoice_items" as InvItemsDB
+participant "housekeeping_tasks" as HKDB
+
+== 1. Room Search & Guest Selection ==
+User -> RoomsDB: Query Available Rooms (status='Available')
+activate RoomsDB
+RoomsDB --> User: Return Available Rooms list
+deactivate RoomsDB
+
+User -> GuestsDB: Search Guest (by email/phone)
+activate GuestsDB
+alt Guest Exists
+    GuestsDB --> User: Return Guest details
+else New Guest
+    User -> GuestsDB: Insert New Guest (Name, Email, Phone, ID)
+    GuestsDB --> User: Return new Guest ID
+end
+deactivate GuestsDB
+
+== 2. Creating the Reservation ==
+User -> ResDB: Insert Reservation (GuestID, RoomID, Dates)
+activate ResDB
+ResDB --> User: Return Reservation ID
+deactivate ResDB
+
+User -> RoomsDB: Update Room (status='Occupied')
+activate RoomsDB
+RoomsDB --> User: Room status updated
+deactivate RoomsDB
+
+== 3. Billing & Invoicing ==
+User -> InvoiceDB: Create Invoice (Reservation ID, Status='Unpaid')
+activate InvoiceDB
+InvoiceDB --> User: Return Invoice ID
+deactivate InvoiceDB
+
+User -> InvItemsDB: Add Invoice Items (Room charges, etc.)
+activate InvItemsDB
+InvItemsDB --> User: Items added
+deactivate InvItemsDB
+
+== 4. Check-Out & Payment ==
+User -> InvoiceDB: Process Payment (Amount, Payment Method)
+activate InvoiceDB
+InvoiceDB -> InvoiceDB: Update (status='Paid', amount_paid)
+InvoiceDB --> User: Payment confirmed
+deactivate InvoiceDB
+
+User -> ResDB: Update Reservation (status='CheckedOut')
+activate ResDB
+ResDB --> User: Reservation closed
+deactivate ResDB
+
+User -> RoomsDB: Update Room (status='Maintenance')
+activate RoomsDB
+RoomsDB --> User: Room requires cleaning
+deactivate RoomsDB
+
+== 5. Housekeeping Trigger ==
+User -> HKDB: Create Maintenance Task (Room ID, type='Cleaning')
+activate HKDB
+HKDB --> User: Task Created
+deactivate HKDB
+
+note right of HKDB: Later, Housekeeping\ncompletes task, setting\nRoom back to 'Available'
+
+@enduml
