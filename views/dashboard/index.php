@@ -22,6 +22,18 @@
                      ADMIN DASHBOARD — Full operational + financial overview
                 ════════════════════════════════════════════════════════════ -->
 
+                <?php if (!empty($overdueCount) && $overdueCount > 0): ?>
+                <div class="alert alert-error" role="alert" style="margin-bottom: var(--space-lg);">
+                    <span class="alert-message">
+                        <strong>Overdue Stays:</strong>
+                        <?php echo (int)$overdueCount; ?> reservation<?php echo $overdueCount > 1 ? 's are' : ' is'; ?>
+                        past the scheduled checkout date but still marked as Checked In.
+                        <a href="<?php echo url('reservations', ['status' => 'CheckedIn']); ?>" style="color: inherit; font-weight: 600; text-decoration: underline;">Review now</a>
+                    </span>
+                    <button class="alert-close" onclick="this.parentElement.remove()" aria-label="Dismiss">&times;</button>
+                </div>
+                <?php endif; ?>
+
                 <!-- 4-card stats row -->
                 <div class="stats-grid">
                     <div class="stat-card">

@@ -84,6 +84,37 @@
                                 </button>
                             </div>
                         </form>
+
+                        <?php if (isset($roomObj)): ?>
+                        <!-- Room type metadata from the Factory Pattern — read-only info panel -->
+                        <div style="margin-top: var(--space-lg); padding-top: var(--space-lg); border-top: 1px solid var(--border-color);">
+                            <h4 style="margin: 0 0 var(--space-sm); color: var(--text-primary); font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
+                                <?php echo sanitize($roomObj->getTypeLabel()); ?> — Type Specifications
+                            </h4>
+                            <div class="detail-row">
+                                <span class="detail-label">Max Occupancy</span>
+                                <span class="detail-value"><?php echo $roomObj->getMaxOccupancy(); ?> guest<?php echo $roomObj->getMaxOccupancy() > 1 ? 's' : ''; ?></span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Housekeeping Priority</span>
+                                <span class="detail-value">
+                                    <span class="badge badge-dot badge-<?php echo strtolower($roomObj->getHousekeepingPriority()); ?>">
+                                        <?php echo sanitize($roomObj->getHousekeepingPriority()); ?>
+                                    </span>
+                                </span>
+                            </div>
+                            <div style="margin-top: var(--space-sm);">
+                                <span class="detail-label" style="display: block; margin-bottom: var(--space-xs);">Included Amenities</span>
+                                <div style="display: flex; flex-wrap: wrap; gap: var(--space-xs);">
+                                    <?php foreach ($roomObj->getAmenities() as $amenity): ?>
+                                        <span style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 8px; font-size: 0.75rem; color: var(--text-secondary);">
+                                            <?php echo sanitize($amenity); ?>
+                                        </span>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>

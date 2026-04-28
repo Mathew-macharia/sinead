@@ -23,9 +23,9 @@
 
                 <select class="filter-select" data-filter-status="roomsTable" id="statusFilter">
                     <option value="">All Statuses</option>
-                    <option value="available" <?php echo ($_GET['status'] ?? '') === 'Available' ? 'selected' : ''; ?>>Available</option>
-                    <option value="occupied" <?php echo ($_GET['status'] ?? '') === 'Occupied' ? 'selected' : ''; ?>>Occupied</option>
-                    <option value="maintenance" <?php echo ($_GET['status'] ?? '') === 'Maintenance' ? 'selected' : ''; ?>>Maintenance</option>
+                    <option value="Available"    <?php echo ($_GET['status'] ?? '') === 'Available'    ? 'selected' : ''; ?>>Available</option>
+                    <option value="Occupied"     <?php echo ($_GET['status'] ?? '') === 'Occupied'     ? 'selected' : ''; ?>>Occupied</option>
+                    <option value="Maintenance"  <?php echo ($_GET['status'] ?? '') === 'Maintenance'  ? 'selected' : ''; ?>>Maintenance</option>
                 </select>
 
                 <div class="view-toggle">

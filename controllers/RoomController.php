@@ -75,7 +75,13 @@ function handleListRooms(PDO $db): void
 
     $stmt = $db->prepare("SELECT * FROM rooms {$whereClause} ORDER BY room_number ASC");
     $stmt->execute($params);
-    $rooms = $stmt->fetchAll();
+    // Convert each DB row to a typed Room object via the factory.
+    // Views can still use $room['room_number'] (ArrayAccess) AND call
+    // $room->getAmenities(), $room->getMaxOccupancy(), etc.
+    $rooms = array_map(
+        fn($row) => RoomFactory::fromDbRow($row),
+        $stmt->fetchAll()
+    );
 
     // Room count by status
     $statusCounts = $db->query("
@@ -162,6 +168,8 @@ function handleEditRoom(PDO $db): void
         return;
     }
 
+    // Build the typed Room object so the view can call $roomObj->getAmenities() etc.
+    $roomObj  = RoomFactory::fromDbRow($room);
     $formData = $room;
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -225,29 +233,26 @@ function handleDeleteRoom(PDO $db): void
 
     $roomId = (int) ($_POST['room_id'] ?? 0);
 
-    // Check for active reservations
-    $check = $db->prepare("
-        SELECT COUNT(*) as count FROM reservations 
-        WHERE room_id = :id AND status IN ('Confirmed', 'CheckedIn')
-    ");
-    $check->execute([':id' => $roomId]);
-    if ($check->fetch()['count'] > 0) {
-        setFlash('error', 'Cannot delete a room with active reservations.');
+    $roomStmt = $db->prepare('SELECT room_number FROM rooms WHERE id = :id');
+    $roomStmt->execute([':id' => $roomId]);
+    $room = $roomStmt->fetch();
+
+    if (!$room) {
+        setFlash('error', 'Room not found.');
         redirect('rooms');
         return;
     }
 
     try {
-        $roomStmt = $db->prepare('SELECT room_number FROM rooms WHERE id = :id');
-        $roomStmt->execute([':id' => $roomId]);
-        $room = $roomStmt->fetch();
-
+        // trg_block_room_delete fires BEFORE DELETE and raises SQLSTATE 45000
+        // if active reservations exist — PDO surfaces it as a PDOException
+        // whose message is the trigger's SET MESSAGE_TEXT string.
         $db->prepare('DELETE FROM rooms WHERE id = :id')->execute([':id' => $roomId]);
         logActivity('Room Deleted', "Room {$room['room_number']} deleted.");
         setFlash('success', "Room {$room['room_number']} has been deleted.");
     } catch (PDOException $e) {
         error_log('Room deletion error: ' . $e->getMessage());
-        setFlash('error', 'Failed to delete room.');
+        setFlash('error', $e->getMessage() ?: 'Failed to delete room.');
     }
 
     redirect('rooms');

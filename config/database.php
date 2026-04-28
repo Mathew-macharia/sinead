@@ -15,7 +15,8 @@
 class Database
 {
     /** @var string Database host address */
-    private static $host = 'localhost';
+    private static $host = '127.0.0.1';
+    private static $port = 3307;
 
     /** @var string Database name */
     private static $dbName = 'sinead_hotel';
@@ -24,7 +25,7 @@ class Database
     private static $username = 'root';
 
     /** @var string Database password */
-    private static $password = 'Ashesi.me254';
+    private static $password = '';
 
     /** @var string Character set for the connection */
     private static $charset = 'utf8mb4';
@@ -61,8 +62,9 @@ class Database
     {
         if (self::$instance === null) {
             $dsn = sprintf(
-                'mysql:host=%s;dbname=%s;charset=%s',
+                'mysql:host=%s;port=%d;dbname=%s;charset=%s',
                 self::$host,
+                self::$port,
                 self::$dbName,
                 self::$charset
             );
@@ -78,10 +80,9 @@ class Database
             try {
                 self::$instance = new PDO($dsn, self::$username, self::$password, $options);
             } catch (PDOException $e) {
-                // Log the error securely without exposing credentials
                 error_log('Database connection failed: ' . $e->getMessage());
                 throw new PDOException(
-                    'Database connection failed. Please check your configuration.',
+                    'DB Error: ' . $e->getMessage(),
                     (int) $e->getCode()
                 );
             }

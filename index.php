@@ -34,6 +34,19 @@ require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/helpers/functions.php';
 require_once __DIR__ . '/middleware/auth.php';
 
+// ─── Models (Factory Pattern) ────────────────────────────────────────────────
+require_once __DIR__ . '/models/Room.php';
+require_once __DIR__ . '/models/StandardRoom.php';
+require_once __DIR__ . '/models/DeluxeRoom.php';
+require_once __DIR__ . '/models/SuiteRoom.php';
+require_once __DIR__ . '/models/RoomFactory.php';
+
+// ─── Services (Adapter Pattern) ──────────────────────────────────────────────
+require_once __DIR__ . '/services/NotificationInterface.php';
+require_once __DIR__ . '/services/EmailAdapter.php';
+require_once __DIR__ . '/services/SMSAdapter.php';
+require_once __DIR__ . '/services/NotificationService.php';
+
 // Initialize secure session
 startSecureSession();
 

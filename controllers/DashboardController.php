@@ -41,6 +41,16 @@ $revenueMonth  = 0;
 $recentActivity = [];
 
 if (hasRole(ROLE_ADMIN)) {
+    // Cursor procedure: scans all CheckedIn reservations past checkout date
+    // and writes one alert per reservation per day into activity_log.
+    $db->exec("CALL sp_flag_overdue_reservations()");
+
+    // Count of currently overdue stays for the dashboard alert banner
+    $overdueCount = $db->query("
+        SELECT COUNT(*) as count FROM reservations
+        WHERE status = 'CheckedIn' AND check_out_date < CURDATE()
+    ")->fetch()['count'];
+
     $revenueToday = $db->prepare("
         SELECT COALESCE(SUM(amount_paid), 0) as total FROM invoices
         WHERE DATE(created_at) = :today

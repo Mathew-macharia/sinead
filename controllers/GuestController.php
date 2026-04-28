@@ -183,7 +183,7 @@ function handleViewGuest(PDO $db): void
     // Get stay history
     $stayHistory = $db->prepare("
         SELECT r.*, rm.room_number, rm.type as room_type, rm.price_per_night,
-               DATEDIFF(r.check_out_date, r.check_in_date) as nights
+               fn_nights(r.check_in_date, r.check_out_date) as nights
         FROM reservations r
         JOIN rooms rm ON r.room_id = rm.id
         WHERE r.guest_id = :id

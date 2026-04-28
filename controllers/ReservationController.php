@@ -47,10 +47,10 @@ function handleListReservations(PDO $db): void
     }
 
     $stmt = $db->prepare("
-        SELECT r.*, 
+        SELECT r.*,
                CONCAT(g.first_name, ' ', g.last_name) as guest_name, g.phone as guest_phone,
                rm.room_number, rm.type as room_type, rm.price_per_night,
-               DATEDIFF(r.check_out_date, r.check_in_date) as nights
+               fn_nights(r.check_in_date, r.check_out_date) as nights
         FROM reservations r
         JOIN guests g ON r.guest_id = g.id
         JOIN rooms rm ON r.room_id = rm.id
@@ -95,20 +95,33 @@ function handleCreateReservation(PDO $db): void
             }
         }
 
-        // Validate room availability
+        // Validate room availability using stored function fn_is_room_available()
         if (empty($errors)) {
-            $roomCheck = $db->prepare("
-                SELECT COUNT(*) as c FROM reservations 
-                WHERE room_id = :room AND status IN ('Confirmed','CheckedIn')
-                AND check_in_date < :out AND check_out_date > :in
-            ");
-            $roomCheck->execute([
+            $avail = $db->prepare(
+                "SELECT fn_is_room_available(:room, :in, :out) AS available"
+            );
+            $avail->execute([
                 ':room' => $formData['room_id'],
                 ':in'   => $formData['check_in_date'],
-                ':out'  => $formData['check_out_date']
+                ':out'  => $formData['check_out_date'],
             ]);
-            if ($roomCheck->fetch()['c'] > 0) {
+            if (!$avail->fetch()['available']) {
                 $errors[] = 'This room is already booked for the selected dates.';
+            }
+        }
+
+        // Validate guest count against room type's max occupancy (Factory Pattern)
+        if (empty($errors)) {
+            $roomRow = $db->prepare("SELECT * FROM rooms WHERE id = :id");
+            $roomRow->execute([':id' => $formData['room_id']]);
+            $roomData = $roomRow->fetch();
+            if ($roomData) {
+                $roomObj   = RoomFactory::fromDbRow($roomData);
+                $numGuests = (int) ($formData['num_guests'] ?? 1);
+                if ($numGuests > $roomObj->getMaxOccupancy()) {
+                    $errors[] = "This {$roomObj->getTypeLabel()} has a maximum occupancy of "
+                        . "{$roomObj->getMaxOccupancy()} guest(s). You entered {$numGuests}.";
+                }
             }
         }
 
@@ -130,6 +143,23 @@ function handleCreateReservation(PDO $db): void
 
                 $resId = $db->lastInsertId();
                 logActivity('Reservation Created', "Reservation #{$resId} created.");
+
+                // Notify guest about their booking confirmation (Adapter Pattern)
+                $guestStmt = $db->prepare(
+                    "SELECT first_name, last_name, email, phone FROM guests WHERE id = :id"
+                );
+                $guestStmt->execute([':id' => $formData['guest_id']]);
+                $guestInfo = $guestStmt->fetch();
+                if ($guestInfo) {
+                    $subject = 'Reservation Confirmed – ' . APP_NAME;
+                    $message = "Dear {$guestInfo['first_name']},<br><br>"
+                        . "Your reservation <strong>#{$resId}</strong> has been confirmed.<br>"
+                        . "Check-in: <strong>{$formData['check_in_date']}</strong> &nbsp;|&nbsp; "
+                        . "Check-out: <strong>{$formData['check_out_date']}</strong><br><br>"
+                        . "We look forward to welcoming you.<br>" . APP_FULL_NAME;
+                    makeNotifier()->notifyGuest($guestInfo, $subject, $message);
+                }
+
                 setFlash('success', 'Reservation created successfully.');
                 redirect('reservations');
             } catch (PDOException $e) {
@@ -151,7 +181,7 @@ function handleViewReservation(PDO $db): void
         SELECT r.*, 
                CONCAT(g.first_name, ' ', g.last_name) as guest_name, g.phone, g.email, g.id_document,
                rm.room_number, rm.type as room_type, rm.price_per_night, rm.floor,
-               DATEDIFF(r.check_out_date, r.check_in_date) as nights,
+               fn_nights(r.check_in_date, r.check_out_date) as nights,
                u.full_name as created_by_name
         FROM reservations r
         JOIN guests g ON r.guest_id = g.id
@@ -184,21 +214,40 @@ function handleCheckIn(PDO $db): void
     $resId = (int)($_POST['reservation_id'] ?? 0);
 
     try {
-        $db->beginTransaction();
+        // sp_check_in validates the reservation state, updates reservations + rooms,
+        // and returns an error string in @err (NULL on success).
+        // The trg_reservation_status_change trigger also fires as an extra safety net.
+        $db->prepare("CALL sp_check_in(:res_id, @err)")->execute([':res_id' => $resId]);
+        $result = $db->query("SELECT @err AS error")->fetch();
 
-        // Update reservation status
-        $db->prepare("UPDATE reservations SET status = 'CheckedIn' WHERE id = :id AND status = 'Confirmed'")
-           ->execute([':id' => $resId]);
+        if ($result['error']) {
+            setFlash('error', $result['error']);
+        } else {
+            logActivity('Guest Checked In', "Reservation #{$resId} checked in.");
 
-        // Update room status to Occupied
-        $db->prepare("UPDATE rooms SET status = 'Occupied' WHERE id = (SELECT room_id FROM reservations WHERE id = :id)")
-           ->execute([':id' => $resId]);
+            // Notify guest of successful check-in (Adapter Pattern)
+            $guestRow = $db->prepare("
+                SELECT g.first_name, g.last_name, g.email, g.phone, rm.room_number
+                FROM reservations r
+                JOIN guests g  ON r.guest_id = g.id
+                JOIN rooms  rm ON r.room_id  = rm.id
+                WHERE r.id = :id
+            ");
+            $guestRow->execute([':id' => $resId]);
+            $guestInfo = $guestRow->fetch();
+            if ($guestInfo) {
+                $subject = 'Welcome to ' . APP_NAME . ' – Room ' . $guestInfo['room_number'];
+                $message = "Dear {$guestInfo['first_name']},<br><br>"
+                    . "You have been successfully checked in to "
+                    . "<strong>Room {$guestInfo['room_number']}</strong>.<br>"
+                    . "We hope you enjoy your stay. Our front desk is available 24 hours.<br><br>"
+                    . APP_FULL_NAME;
+                makeNotifier()->notifyGuest($guestInfo, $subject, $message);
+            }
 
-        $db->commit();
-        logActivity('Guest Checked In', "Reservation #{$resId} checked in.");
-        setFlash('success', 'Guest has been checked in successfully.');
+            setFlash('success', 'Guest has been checked in successfully.');
+        }
     } catch (PDOException $e) {
-        $db->rollBack();
         error_log('Check-in error: ' . $e->getMessage());
         setFlash('error', 'Failed to process check-in.');
     }
@@ -214,61 +263,46 @@ function handleCheckOut(PDO $db): void
     $resId = (int)($_POST['reservation_id'] ?? 0);
 
     try {
-        $db->beginTransaction();
+        // sp_check_out handles all DB work atomically: reservation → CheckedOut,
+        // room → Maintenance, invoice + line item creation, and housekeeping task
+        // with room-type priority (mirrors the Factory Pattern's getHousekeepingPriority).
+        // OUT parameters @invoice and @total are read back in a second query.
+        $db->prepare("CALL sp_check_out(:res_id, @invoice, @total, @err)")
+           ->execute([':res_id' => $resId]);
 
-        // Get reservation details for invoice
-        $res = $db->prepare("
-            SELECT r.*, rm.price_per_night, rm.room_number,
-                   DATEDIFF(r.check_out_date, r.check_in_date) as nights
-            FROM reservations r JOIN rooms rm ON r.room_id = rm.id WHERE r.id = :id
-        ");
-        $res->execute([':id' => $resId]);
-        $reservation = $res->fetch();
+        $result = $db->query("SELECT @invoice AS invoice, @total AS total, @err AS error")->fetch();
 
-        // Update reservation
-        $db->prepare("UPDATE reservations SET status = 'CheckedOut' WHERE id = :id AND status = 'CheckedIn'")
-           ->execute([':id' => $resId]);
+        if ($result['error']) {
+            setFlash('error', $result['error']);
+        } else {
+            $invoiceNum = $result['invoice'];
+            $total      = $result['total'];
 
-        // Update room to Maintenance (not Available) — room must be cleaned first.
-        // HousekeepingController will set it back to Available when the cleaning task is completed.
-        $db->prepare("UPDATE rooms SET status = 'Maintenance' WHERE id = :rid")
-           ->execute([':rid' => $reservation['room_id']]);
+            logActivity('Guest Checked Out', "Reservation #{$resId} checked out. Invoice {$invoiceNum} generated.");
 
-        // Generate invoice
-        $nights = max(1, $reservation['nights']);
-        $total = $nights * $reservation['price_per_night'];
-        $invoiceNum = 'INV-' . date('Ymd') . '-' . str_pad($resId, 4, '0', STR_PAD_LEFT);
+            // Notify guest of checkout and invoice (Adapter Pattern)
+            $guestRow = $db->prepare("
+                SELECT g.first_name, g.last_name, g.email, g.phone
+                FROM reservations r JOIN guests g ON r.guest_id = g.id
+                WHERE r.id = :id
+            ");
+            $guestRow->execute([':id' => $resId]);
+            $guestInfo = $guestRow->fetch();
+            if ($guestInfo) {
+                $subject = 'Thank You for Your Stay – Invoice ' . $invoiceNum;
+                $message = "Dear {$guestInfo['first_name']},<br><br>"
+                    . "Thank you for choosing <strong>" . APP_NAME . "</strong>. "
+                    . "We hope you had a wonderful stay.<br><br>"
+                    . "Invoice <strong>{$invoiceNum}</strong> for "
+                    . "<strong>KES " . number_format($total, 2) . "</strong> "
+                    . "has been generated and is available at the front desk.<br><br>"
+                    . "We look forward to seeing you again.<br>" . APP_FULL_NAME;
+                makeNotifier()->notifyGuest($guestInfo, $subject, $message);
+            }
 
-        $db->prepare("
-            INSERT INTO invoices (reservation_id, invoice_number, total_amount, status)
-            VALUES (:res_id, :num, :total, 'Unpaid')
-        ")->execute([':res_id' => $resId, ':num' => $invoiceNum, ':total' => $total]);
-
-        $invoiceId = $db->lastInsertId();
-
-        // Add invoice line items
-        $db->prepare("
-            INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, total)
-            VALUES (:inv_id, :desc, :qty, :price, :total)
-        ")->execute([
-            ':inv_id' => $invoiceId,
-            ':desc'   => "Room {$reservation['room_number']} - Accommodation",
-            ':qty'    => $nights,
-            ':price'  => $reservation['price_per_night'],
-            ':total'  => $total
-        ]);
-
-        // Create housekeeping task for the room
-        $db->prepare("
-            INSERT INTO housekeeping_tasks (room_id, task_type, status, priority, notes)
-            VALUES (:room, 'Cleaning', 'Pending', 'High', 'Post-checkout cleaning required')
-        ")->execute([':room' => $reservation['room_id']]);
-
-        $db->commit();
-        logActivity('Guest Checked Out', "Reservation #{$resId} checked out. Invoice {$invoiceNum} generated.");
-        setFlash('success', "Guest checked out. Invoice {$invoiceNum} has been generated.");
+            setFlash('success', "Guest checked out. Invoice {$invoiceNum} has been generated.");
+        }
     } catch (PDOException $e) {
-        $db->rollBack();
         error_log('Check-out error: ' . $e->getMessage());
         setFlash('error', 'Failed to process check-out.');
     }
@@ -283,41 +317,41 @@ function handleCancel(PDO $db): void
 
     $resId = (int)($_POST['reservation_id'] ?? 0);
 
-    // Fetch current status before doing anything
-    $res = $db->prepare("SELECT room_id, status FROM reservations WHERE id = :id");
-    $res->execute([':id' => $resId]);
-    $reservation = $res->fetch();
-
-    if (!$reservation) {
-        setFlash('error', 'Reservation not found.');
-        redirect('reservations');
-        return;
-    }
-
-    // Block cancellation of a checked-in reservation — must be checked out first
-    if ($reservation['status'] === 'CheckedIn') {
-        setFlash('error', 'This guest is currently checked in. Please complete the checkout process to generate their invoice before closing this reservation.');
-        redirect('reservations&action=view&id=' . $resId);
-        return;
-    }
-
-    if ($reservation['status'] !== 'Confirmed') {
-        setFlash('error', 'Only confirmed (upcoming) reservations can be cancelled.');
-        redirect('reservations&action=view&id=' . $resId);
-        return;
-    }
-
     try {
-        $db->beginTransaction();
+        // sp_cancel_reservation validates the status and cancels in one call.
+        // The trg_reservation_status_change trigger sets the room back to Available.
+        $db->prepare("CALL sp_cancel_reservation(:res_id, @err)")->execute([':res_id' => $resId]);
+        $result = $db->query("SELECT @err AS error")->fetch();
 
-        $db->prepare("UPDATE reservations SET status = 'Cancelled' WHERE id = :id AND status = 'Confirmed'")
-           ->execute([':id' => $resId]);
+        if ($result['error']) {
+            setFlash('error', $result['error']);
+            redirect('reservations&action=view&id=' . $resId);
+            return;
+        }
 
-        $db->commit();
-        logActivity('Reservation Cancelled', "Reservation #{$resId} cancelled (was Confirmed).");
+        logActivity('Reservation Cancelled', "Reservation #{$resId} cancelled.");
+
+        // Notify guest of cancellation (Adapter Pattern)
+        $guestRow = $db->prepare("
+            SELECT g.first_name, g.last_name, g.email, g.phone
+            FROM reservations r JOIN guests g ON r.guest_id = g.id
+            WHERE r.id = :id
+        ");
+        $guestRow->execute([':id' => $resId]);
+        $guestInfo = $guestRow->fetch();
+        if ($guestInfo) {
+            $subject = 'Reservation Cancelled – ' . APP_NAME;
+            $message = "Dear {$guestInfo['first_name']},<br><br>"
+                . "Your reservation <strong>#{$resId}</strong> has been cancelled.<br>"
+                . "If you did not request this cancellation or need assistance, "
+                . "please contact our front desk at <strong>" . HOTEL_PHONE . "</strong>.<br><br>"
+                . APP_FULL_NAME;
+            makeNotifier()->notifyGuest($guestInfo, $subject, $message);
+        }
+
         setFlash('success', 'Reservation has been cancelled.');
     } catch (PDOException $e) {
-        $db->rollBack();
+        error_log('Cancel error: ' . $e->getMessage());
         setFlash('error', 'Failed to cancel reservation.');
     }
 

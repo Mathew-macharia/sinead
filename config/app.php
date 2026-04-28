@@ -24,6 +24,8 @@ define('VIEWS_PATH', BASE_PATH . '/views');
 define('HELPERS_PATH', BASE_PATH . '/helpers');
 define('ASSETS_PATH', BASE_PATH . '/assets');
 define('MIDDLEWARE_PATH', BASE_PATH . '/middleware');
+define('MODELS_PATH', BASE_PATH . '/models');
+define('SERVICES_PATH', BASE_PATH . '/services');
 
 // ─── URL Configuration ──────────────────────────────────────────────────────
 // Auto-detect the base URL from server variables

@@ -79,7 +79,7 @@ function handleViewInvoice(PDO $db): void
                g.email as guest_email, g.phone as guest_phone, g.address as guest_address,
                rm.room_number, rm.type as room_type,
                r.check_in_date, r.check_out_date, r.num_guests,
-               DATEDIFF(r.check_out_date, r.check_in_date) as nights
+               fn_nights(r.check_in_date, r.check_out_date) as nights
         FROM invoices i
         JOIN reservations r ON i.reservation_id = r.id
         JOIN guests g ON r.guest_id = g.id

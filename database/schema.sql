@@ -205,6 +205,279 @@ CREATE TABLE password_resets (
 
 
 -- ═══════════════════════════════════════════════════════════════════════════
+-- STORED FUNCTIONS
+-- Run this file via MySQL CLI or phpMyAdmin — DELIMITER is a client command
+-- and is not supported by PDO.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+DELIMITER $$
+
+-- ─── fn_nights ───────────────────────────────────────────────────────────────
+-- Returns the number of nights between two dates (minimum 1).
+-- Used inside queries wherever a night count is needed — avoids duplicating
+-- the DATEDIFF + GREATEST logic across procedures, reports, and PHP.
+CREATE FUNCTION fn_nights(p_check_in DATE, p_check_out DATE)
+RETURNS INT
+DETERMINISTIC
+BEGIN
+    RETURN GREATEST(1, DATEDIFF(p_check_out, p_check_in));
+END$$
+
+-- ─── fn_is_room_available ────────────────────────────────────────────────────
+-- Returns 1 if no confirmed or checked-in booking overlaps the requested dates,
+-- 0 otherwise. Used by the reservation form and sp_check_in to validate dates.
+CREATE FUNCTION fn_is_room_available(
+    p_room_id   INT,
+    p_check_in  DATE,
+    p_check_out DATE
+)
+RETURNS TINYINT(1)
+DETERMINISTIC READS SQL DATA
+BEGIN
+    DECLARE v_conflicts INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_conflicts
+    FROM reservations
+    WHERE room_id      = p_room_id
+      AND status       IN ('Confirmed', 'CheckedIn')
+      AND check_in_date  < p_check_out
+      AND check_out_date > p_check_in;
+
+    RETURN (v_conflicts = 0);
+END$$
+
+DELIMITER ;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- STORED PROCEDURES
+-- Each procedure uses DECLARE variables to hold intermediate query results
+-- and OUT parameters to return status back to PHP.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+DELIMITER $$
+
+-- ─── sp_check_in ─────────────────────────────────────────────────────────────
+-- Transitions a Confirmed reservation to CheckedIn and marks the room Occupied.
+-- OUT p_error is NULL on success, an error string on failure.
+-- PHP checks @err after CALL to decide whether to show success or error flash.
+CREATE PROCEDURE sp_check_in(
+    IN  p_res_id INT,
+    OUT p_error  VARCHAR(255)
+)
+BEGIN
+    DECLARE v_status  VARCHAR(20);
+    DECLARE v_room_id INT;
+
+    -- Variables capture the reservation's current state before making any changes
+    SELECT status, room_id
+    INTO   v_status, v_room_id
+    FROM   reservations
+    WHERE  id = p_res_id;
+
+    IF v_status IS NULL THEN
+        SET p_error = 'Reservation not found.';
+    ELSEIF v_status != 'Confirmed' THEN
+        SET p_error = CONCAT('Cannot check in: reservation status is ', v_status, '.');
+    ELSE
+        UPDATE reservations SET status = 'CheckedIn' WHERE id = p_res_id;
+        UPDATE rooms        SET status = 'Occupied'  WHERE id = v_room_id;
+        SET p_error = NULL;
+    END IF;
+END$$
+
+-- ─── sp_check_out ────────────────────────────────────────────────────────────
+-- Handles the full checkout flow in a single atomic transaction:
+--   1. Validates the reservation is CheckedIn
+--   2. Sets reservation → CheckedOut, room → Maintenance
+--   3. Generates an invoice and line item using fn_nights()
+--   4. Creates a housekeeping task with priority based on room type
+-- OUT parameters return the invoice number and total so PHP can use them
+-- for notifications and flash messages without a second query.
+CREATE PROCEDURE sp_check_out(
+    IN  p_res_id  INT,
+    OUT p_invoice VARCHAR(50),
+    OUT p_total   DECIMAL(10,2),
+    OUT p_error   VARCHAR(255)
+)
+BEGIN
+    DECLARE v_room_id     INT;
+    DECLARE v_room_number VARCHAR(10);
+    DECLARE v_room_type   VARCHAR(20);
+    DECLARE v_price       DECIMAL(10,2);
+    DECLARE v_nights      INT;
+    DECLARE v_invoice_id  INT;
+    DECLARE v_priority    VARCHAR(10);
+
+    -- Load everything needed for invoice + housekeeping in one query
+    SELECT r.room_id, rm.room_number, rm.type, rm.price_per_night,
+           fn_nights(r.check_in_date, r.check_out_date)
+    INTO   v_room_id, v_room_number, v_room_type, v_price, v_nights
+    FROM   reservations r
+    JOIN   rooms rm ON r.room_id = rm.id
+    WHERE  r.id = p_res_id AND r.status = 'CheckedIn';
+
+    IF v_room_id IS NULL THEN
+        SET p_error = 'Reservation not found or guest is not currently checked in.';
+    ELSE
+        SET p_total   = v_nights * v_price;
+        SET p_invoice = CONCAT('INV-', DATE_FORMAT(NOW(), '%Y%m%d'), '-', LPAD(p_res_id, 4, '0'));
+
+        -- Housekeeping priority mirrors the PHP Factory Pattern logic
+        SET v_priority = CASE v_room_type
+            WHEN 'Suite'  THEN 'High'
+            WHEN 'Deluxe' THEN 'Medium'
+            ELSE               'Low'
+        END;
+
+        START TRANSACTION;
+
+            UPDATE reservations SET status = 'CheckedOut' WHERE id = p_res_id;
+            UPDATE rooms        SET status = 'Maintenance' WHERE id = v_room_id;
+
+            INSERT INTO invoices (reservation_id, invoice_number, total_amount, status)
+            VALUES (p_res_id, p_invoice, p_total, 'Unpaid');
+
+            SET v_invoice_id = LAST_INSERT_ID();
+
+            INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, total)
+            VALUES (v_invoice_id,
+                    CONCAT('Room ', v_room_number, ' - Accommodation'),
+                    v_nights, v_price, p_total);
+
+            INSERT INTO housekeeping_tasks (room_id, task_type, status, priority, notes)
+            VALUES (v_room_id, 'Cleaning', 'Pending', v_priority, 'Post-checkout cleaning required');
+
+        COMMIT;
+        SET p_error = NULL;
+    END IF;
+END$$
+
+-- ─── sp_cancel_reservation ───────────────────────────────────────────────────
+-- Cancels a Confirmed reservation. Refuses if the guest is CheckedIn or the
+-- reservation is already in a terminal state (CheckedOut, Cancelled).
+CREATE PROCEDURE sp_cancel_reservation(
+    IN  p_res_id INT,
+    OUT p_error  VARCHAR(255)
+)
+BEGIN
+    DECLARE v_status VARCHAR(20);
+
+    SELECT status INTO v_status FROM reservations WHERE id = p_res_id;
+
+    IF v_status IS NULL THEN
+        SET p_error = 'Reservation not found.';
+    ELSEIF v_status = 'CheckedIn' THEN
+        SET p_error = 'This guest is currently checked in. Complete checkout first.';
+    ELSEIF v_status != 'Confirmed' THEN
+        SET p_error = CONCAT('Only confirmed reservations can be cancelled. Current status: ', v_status, '.');
+    ELSE
+        UPDATE reservations SET status = 'Cancelled' WHERE id = p_res_id;
+        SET p_error = NULL;
+    END IF;
+END$$
+
+-- ─── sp_flag_overdue_reservations ────────────────────────────────────────────
+-- Cursor-based procedure: iterates every reservation that is still CheckedIn
+-- but past its checkout date, and writes one alert per reservation per day
+-- into activity_log. Called by the admin dashboard on each page load.
+CREATE PROCEDURE sp_flag_overdue_reservations()
+BEGIN
+    DECLARE v_done     TINYINT(1) DEFAULT 0;
+    DECLARE v_res_id   INT;
+    DECLARE v_guest    VARCHAR(120);
+    DECLARE v_room_num VARCHAR(10);
+
+    -- Cursor selects all overdue rows; the handler exits the loop cleanly
+    DECLARE cur_overdue CURSOR FOR
+        SELECT r.id,
+               CONCAT(g.first_name, ' ', g.last_name),
+               rm.room_number
+        FROM   reservations r
+        JOIN   guests  g  ON r.guest_id = g.id
+        JOIN   rooms   rm ON r.room_id  = rm.id
+        WHERE  r.status = 'CheckedIn'
+          AND  r.check_out_date < CURDATE();
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done = 1;
+
+    OPEN cur_overdue;
+
+    read_loop: LOOP
+        FETCH cur_overdue INTO v_res_id, v_guest, v_room_num;
+        IF v_done THEN LEAVE read_loop; END IF;
+
+        -- Only log once per reservation per calendar day to avoid duplicate noise
+        INSERT INTO activity_log (user_id, action, details, created_at)
+        SELECT NULL,
+               'Overdue Stay Flagged',
+               CONCAT('Reservation #', v_res_id, ' — ', v_guest,
+                      ' in Room ', v_room_num, ' is overdue.'),
+               NOW()
+        WHERE NOT EXISTS (
+            SELECT 1 FROM activity_log
+            WHERE  action = 'Overdue Stay Flagged'
+              AND  details LIKE CONCAT('%Reservation #', v_res_id, '%')
+              AND  DATE(created_at) = CURDATE()
+        );
+    END LOOP;
+
+    CLOSE cur_overdue;
+END$$
+
+DELIMITER ;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- TRIGGERS
+-- ═══════════════════════════════════════════════════════════════════════════
+
+DELIMITER $$
+
+-- ─── trg_reservation_status_change ───────────────────────────────────────────
+-- Automatically syncs room status whenever a reservation status changes.
+-- This enforces the business rule at the DB layer — it fires even if the
+-- change comes from a raw SQL tool or a future API, not just the PHP app.
+CREATE TRIGGER trg_reservation_status_change
+AFTER UPDATE ON reservations
+FOR EACH ROW
+BEGIN
+    IF NEW.status = 'CheckedIn'  AND OLD.status != 'CheckedIn' THEN
+        UPDATE rooms SET status = 'Occupied'    WHERE id = NEW.room_id;
+
+    ELSEIF NEW.status = 'CheckedOut' AND OLD.status != 'CheckedOut' THEN
+        UPDATE rooms SET status = 'Maintenance' WHERE id = NEW.room_id;
+
+    ELSEIF NEW.status = 'Cancelled'  AND OLD.status  = 'Confirmed' THEN
+        UPDATE rooms SET status = 'Available'   WHERE id = NEW.room_id;
+    END IF;
+END$$
+
+-- ─── trg_block_room_delete ───────────────────────────────────────────────────
+-- Prevents deletion of a room that has active (Confirmed or CheckedIn)
+-- reservations. Raises SQLSTATE 45000 which PDO surfaces as a PDOException —
+-- the message text is shown directly to the user in the flash message.
+CREATE TRIGGER trg_block_room_delete
+BEFORE DELETE ON rooms
+FOR EACH ROW
+BEGIN
+    DECLARE v_active INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_active
+    FROM   reservations
+    WHERE  room_id = OLD.id
+      AND  status IN ('Confirmed', 'CheckedIn');
+
+    IF v_active > 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Cannot delete a room with active reservations.';
+    END IF;
+END$$
+
+DELIMITER ;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
 -- SEED DATA
 -- Default data for initial system setup and testing.
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -265,6 +538,25 @@ INSERT INTO reservations (guest_id, room_id, created_by, check_in_date, check_ou
     (3, 12, 1, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 5 DAY), 2, 'CheckedIn',  'Anniversary celebration'),
     (4, 18, 1, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 4 DAY), 2, 'CheckedIn',  'VIP guest - complimentary fruit basket'),
     (5, 1,  1, DATE_ADD(CURDATE(), INTERVAL 2 DAY), DATE_ADD(CURDATE(), INTERVAL 5 DAY), 1, 'Confirmed', 'Early check-in requested');
+
+-- ─── NOTIFICATION LOG TABLE ─────────────────────────────────────────────────
+-- Stores every outbound notification attempt made by the Adapter Pattern
+-- service layer. Email sends are logged with 'sent'/'failed'; SMS entries
+-- use 'logged' until a real provider is wired in.
+CREATE TABLE notification_log (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    channel     ENUM('email', 'sms')              NOT NULL,
+    recipient   VARCHAR(100)                       NOT NULL,
+    subject     VARCHAR(255)                       NOT NULL,
+    message     TEXT                               NOT NULL,
+    status      ENUM('sent', 'failed', 'logged')   NOT NULL DEFAULT 'logged',
+    created_at  DATETIME                           NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_notif_channel (channel),
+    INDEX idx_notif_status  (status),
+    INDEX idx_notif_created (created_at)
+) ENGINE=InnoDB;
+
 
 -- ─── Sample Housekeeping Tasks ──────────────────────────────────────────────
 INSERT INTO housekeeping_tasks (room_id, assigned_to, task_type, status, priority, notes) VALUES
