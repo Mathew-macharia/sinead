@@ -14,12 +14,22 @@
         <div class="content-area">
             <?php renderFlashMessages(); ?>
 
-            <div class="mb-lg">
+            <!-- Page Header with Create Button -->
+            <div class="d-flex align-center justify-between mb-lg">
                 <span class="text-muted text-sm">
                     <?php echo count($tasksByStatus['Pending']); ?> pending &middot;
                     <?php echo count($tasksByStatus['InProgress']); ?> in progress &middot;
                     <?php echo count($tasksByStatus['Completed']); ?> completed
                 </span>
+                <?php if (hasRole(ROLE_ADMIN)): ?>
+                    <button class="btn btn-primary btn-sm" data-modal-target="createTaskModal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        New Task
+                    </button>
+                <?php endif; ?>
             </div>
 
             <!-- Kanban Board -->
@@ -40,18 +50,31 @@
                             <?php if ($task['notes']): ?>
                                 <div class="text-xs text-muted mb-sm"><?php echo sanitize($task['notes']); ?></div>
                             <?php endif; ?>
+                            <?php if ($task['assigned_name']): ?>
+                                <div class="text-xs text-muted mb-sm">Assigned: <?php echo sanitize($task['assigned_name']); ?></div>
+                            <?php elseif (hasRole(ROLE_ADMIN)): ?>
+                                <div class="text-xs mb-sm" style="color: var(--warning);">⚠ Unassigned</div>
+                            <?php endif; ?>
                             <div class="kanban-card-meta">
                                 <span class="badge badge-<?php echo strtolower($task['priority']); ?>" style="<?php
                                     echo $task['priority'] === 'High' ? 'background: var(--danger-light); color: var(--danger);' :
                                         ($task['priority'] === 'Medium' ? 'background: var(--warning-light); color: var(--warning);' :
                                         'background: var(--info-light); color: var(--info);');
                                 ?>"><?php echo sanitize($task['priority']); ?></span>
-                                <form method="POST" action="<?php echo url('housekeeping', ['action' => 'update']); ?>" style="display: inline;">
-                                    <?php csrfField(); ?>
-                                    <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
-                                    <input type="hidden" name="status" value="InProgress">
-                                    <button type="submit" class="btn btn-ghost btn-sm" style="font-size: 0.6875rem;">Start</button>
-                                </form>
+                                <div class="d-flex gap-xs">
+                                    <?php if (hasRole(ROLE_ADMIN)): ?>
+                                        <button type="button" class="btn btn-ghost btn-sm" style="font-size: 0.6875rem; color: var(--accent-purple);"
+                                                onclick="openAssignModal(<?php echo $task['id']; ?>, '<?php echo sanitize($task['assigned_name'] ?? ''); ?>')">
+                                            Assign
+                                        </button>
+                                    <?php endif; ?>
+                                    <form method="POST" action="<?php echo url('housekeeping', ['action' => 'update']); ?>" style="display: inline;">
+                                        <?php csrfField(); ?>
+                                        <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
+                                        <input type="hidden" name="status" value="InProgress">
+                                        <button type="submit" class="btn btn-ghost btn-sm" style="font-size: 0.6875rem;">Start</button>
+                                    </form>
+                                </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -75,6 +98,8 @@
                             <div class="kanban-card-task"><?php echo sanitize($task['task_type']); ?></div>
                             <?php if ($task['assigned_name']): ?>
                                 <div class="text-xs text-muted mb-sm">Assigned: <?php echo sanitize($task['assigned_name']); ?></div>
+                            <?php elseif (hasRole(ROLE_ADMIN)): ?>
+                                <div class="text-xs mb-sm" style="color: var(--warning);">⚠ Unassigned</div>
                             <?php endif; ?>
                             <div class="kanban-card-meta">
                                 <span class="badge badge-<?php echo strtolower($task['priority']); ?>" style="<?php
@@ -82,12 +107,20 @@
                                         ($task['priority'] === 'Medium' ? 'background: var(--warning-light); color: var(--warning);' :
                                         'background: var(--info-light); color: var(--info);');
                                 ?>"><?php echo sanitize($task['priority']); ?></span>
-                                <form method="POST" action="<?php echo url('housekeeping', ['action' => 'update']); ?>" style="display: inline;">
-                                    <?php csrfField(); ?>
-                                    <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
-                                    <input type="hidden" name="status" value="Completed">
-                                    <button type="submit" class="btn btn-ghost btn-sm" style="font-size: 0.6875rem; color: var(--success);">Complete</button>
-                                </form>
+                                <div class="d-flex gap-xs">
+                                    <?php if (hasRole(ROLE_ADMIN)): ?>
+                                        <button type="button" class="btn btn-ghost btn-sm" style="font-size: 0.6875rem; color: var(--accent-purple);"
+                                                onclick="openAssignModal(<?php echo $task['id']; ?>, '<?php echo sanitize($task['assigned_name'] ?? ''); ?>')">
+                                            Assign
+                                        </button>
+                                    <?php endif; ?>
+                                    <form method="POST" action="<?php echo url('housekeeping', ['action' => 'update']); ?>" style="display: inline;">
+                                        <?php csrfField(); ?>
+                                        <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
+                                        <input type="hidden" name="status" value="Completed">
+                                        <button type="submit" class="btn btn-ghost btn-sm" style="font-size: 0.6875rem; color: var(--success);">Complete</button>
+                                    </form>
+                                </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -108,6 +141,9 @@
                                 Room <?php echo sanitize($task['room_number']); ?>
                             </div>
                             <div class="kanban-card-task"><?php echo sanitize($task['task_type']); ?></div>
+                            <?php if ($task['assigned_name']): ?>
+                                <div class="text-xs text-muted mb-sm">By: <?php echo sanitize($task['assigned_name']); ?></div>
+                            <?php endif; ?>
                             <div class="kanban-card-meta">
                                 <span class="text-xs"><?php echo $task['completed_at'] ? formatDateTime($task['completed_at']) : ''; ?></span>
                                 <?php if (hasRole(ROLE_ADMIN)): ?>
@@ -126,12 +162,131 @@
                 </div>
             </div>
 
+            <!-- ═══ Create Task Modal (Admin Only) ═══════════════════════════ -->
+            <?php if (hasRole(ROLE_ADMIN)): ?>
+            <div class="modal-overlay" id="createTaskModal">
+                <div class="modal">
+                    <div class="modal-header">
+                        <h3>Create Housekeeping Task</h3>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <form method="POST" action="<?php echo url('housekeeping', ['action' => 'create']); ?>">
+                        <?php csrfField(); ?>
+                        <div class="modal-body">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="room_id" class="form-label">Room</label>
+                                    <select id="room_id" name="room_id" class="form-control" required>
+                                        <option value="">Select a room</option>
+                                        <?php foreach ($rooms as $room): ?>
+                                            <option value="<?php echo $room['id']; ?>">
+                                                Room <?php echo sanitize($room['room_number']); ?> (<?php echo sanitize($room['type']); ?>)
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="assigned_to" class="form-label">Assign To</label>
+                                    <select id="assigned_to" name="assigned_to" class="form-control">
+                                        <option value="">Unassigned</option>
+                                        <?php foreach ($staff as $member): ?>
+                                            <option value="<?php echo $member['id']; ?>">
+                                                <?php echo sanitize($member['full_name']); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="task_type" class="form-label">Task Type</label>
+                                    <select id="task_type" name="task_type" class="form-control" required>
+                                        <?php foreach (TASK_TYPES as $type): ?>
+                                            <option value="<?php echo $type; ?>"><?php echo $type; ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="priority" class="form-label">Priority</label>
+                                    <select id="priority" name="priority" class="form-control" required>
+                                        <?php foreach (TASK_PRIORITIES as $p): ?>
+                                            <option value="<?php echo $p; ?>" <?php echo $p === 'Medium' ? 'selected' : ''; ?>>
+                                                <?php echo $p; ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="notes" class="form-label">Notes</label>
+                                <textarea id="notes" name="notes" class="form-control" rows="2"
+                                          placeholder="Optional task notes..."></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+                            <button type="submit" class="btn btn-primary">Create Task</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ═══ Assign Task Modal (Admin Only) ═══════════════════════════ -->
+            <div class="modal-overlay" id="assignTaskModal">
+                <div class="modal">
+                    <div class="modal-header">
+                        <h3>Assign Task to Staff</h3>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <form method="POST" action="<?php echo url('housekeeping', ['action' => 'assign']); ?>">
+                        <?php csrfField(); ?>
+                        <input type="hidden" name="task_id" id="assignTaskId" value="">
+                        <div class="modal-body">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="assign_to" class="form-label">Housekeeping Staff</label>
+                                <select id="assign_to" name="assigned_to" class="form-control" required>
+                                    <option value="">Select staff member</option>
+                                    <?php foreach ($staff as $member): ?>
+                                        <option value="<?php echo $member['id']; ?>">
+                                            <?php echo sanitize($member['full_name']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="form-text" id="assignCurrentText"></p>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+                            <button type="submit" class="btn btn-primary">Assign</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <?php endif; ?>
+
         </div>
         <?php require_once VIEWS_PATH . '/layouts/footer.php'; ?>
     </div>
 </div>
 
-
 <script src="<?php echo asset('js/main.js'); ?>"></script>
+<?php if (hasRole(ROLE_ADMIN)): ?>
+<script>
+/**
+ * Open the assign-task modal and populate it with the task ID.
+ * Shows who is currently assigned (if anyone).
+ */
+function openAssignModal(taskId, currentAssignee) {
+    document.getElementById('assignTaskId').value = taskId;
+    var hint = document.getElementById('assignCurrentText');
+    if (currentAssignee) {
+        hint.textContent = 'Currently assigned to: ' + currentAssignee;
+    } else {
+        hint.textContent = 'This task is currently unassigned.';
+    }
+    openModal('assignTaskModal');
+}
+</script>
+<?php endif; ?>
 </body>
 </html>

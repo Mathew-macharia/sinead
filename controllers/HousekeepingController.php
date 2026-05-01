@@ -29,6 +29,7 @@ $action = $_GET['action'] ?? 'list';
 switch ($action) {
     case 'create':  handleCreateTask($db);  break;
     case 'update':  handleUpdateTask($db);  break;
+    case 'assign':  handleAssignTask($db);  break;
     case 'delete':  handleDeleteTask($db);  break;
     default:        handleListTasks($db);   break;
 }
@@ -37,7 +38,7 @@ function handleListTasks(PDO $db): void
 {
     $pageTitle    = 'Housekeeping';
     $pageSubtitle = 'Task management board';
-    $userId       = currentUser('id');
+    $userId       = currentUser('user_id');
     $isAdmin      = hasRole(ROLE_ADMIN);
 
     // Admin sees ALL tasks; housekeeping staff sees ONLY their assigned tasks
@@ -149,7 +150,7 @@ function handleUpdateTask(PDO $db): void
     }
 
     // Housekeeping staff can only update tasks assigned to them
-    if (!hasRole(ROLE_ADMIN) && (int)$task['assigned_to'] !== (int)currentUser('id')) {
+    if (!hasRole(ROLE_ADMIN) && (int)$task['assigned_to'] !== (int)currentUser('user_id')) {
         setFlash('error', 'You can only update tasks that are assigned to you.');
         redirect('housekeeping');
         return;
@@ -191,5 +192,58 @@ function handleDeleteTask(PDO $db): void
     } catch (PDOException $e) {
         setFlash('error', 'Failed to delete task.');
     }
+    redirect('housekeeping');
+}
+
+/**
+ * Assign or reassign a task to a housekeeping staff member.
+ * Only admins can assign tasks — this is how auto-created checkout
+ * tasks (which have assigned_to = NULL) become visible to staff.
+ */
+function handleAssignTask(PDO $db): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { redirect('housekeeping'); return; }
+    verifyCsrf();
+    requireAdmin();
+
+    $taskId     = (int)($_POST['task_id'] ?? 0);
+    $assignedTo = (int)($_POST['assigned_to'] ?? 0);
+
+    if (!$taskId || !$assignedTo) {
+        setFlash('error', 'Task and staff member are required.');
+        redirect('housekeeping');
+        return;
+    }
+
+    // Verify the task exists
+    $taskStmt = $db->prepare("SELECT id FROM housekeeping_tasks WHERE id = :id");
+    $taskStmt->execute([':id' => $taskId]);
+    if (!$taskStmt->fetch()) {
+        setFlash('error', 'Task not found.');
+        redirect('housekeeping');
+        return;
+    }
+
+    // Verify the target user is an active housekeeping staff member
+    $staffStmt = $db->prepare("SELECT full_name FROM users WHERE id = :id AND role = 'housekeeping' AND is_active = 1");
+    $staffStmt->execute([':id' => $assignedTo]);
+    $staffMember = $staffStmt->fetch();
+    if (!$staffMember) {
+        setFlash('error', 'Invalid staff member.');
+        redirect('housekeeping');
+        return;
+    }
+
+    try {
+        $db->prepare("UPDATE housekeeping_tasks SET assigned_to = :uid WHERE id = :id")
+           ->execute([':uid' => $assignedTo, ':id' => $taskId]);
+
+        logActivity('Task Assigned', "Housekeeping task #{$taskId} assigned to {$staffMember['full_name']}.");
+        setFlash('success', "Task assigned to {$staffMember['full_name']}.");
+    } catch (PDOException $e) {
+        error_log('Task assign error: ' . $e->getMessage());
+        setFlash('error', 'Failed to assign task.');
+    }
+
     redirect('housekeeping');
 }
