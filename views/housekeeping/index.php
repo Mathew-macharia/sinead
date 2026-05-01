@@ -14,18 +14,12 @@
         <div class="content-area">
             <?php renderFlashMessages(); ?>
 
-            <div class="d-flex align-center justify-between mb-lg">
-                <div>
-                    <span class="text-muted text-sm">
-                        <?php echo count($tasksByStatus['Pending']); ?> pending &middot;
-                        <?php echo count($tasksByStatus['InProgress']); ?> in progress &middot;
-                        <?php echo count($tasksByStatus['Completed']); ?> completed
-                    </span>
-                </div>
-                <button class="btn btn-primary" data-modal-target="createTaskModal">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    New Task
-                </button>
+            <div class="mb-lg">
+                <span class="text-muted text-sm">
+                    <?php echo count($tasksByStatus['Pending']); ?> pending &middot;
+                    <?php echo count($tasksByStatus['InProgress']); ?> in progress &middot;
+                    <?php echo count($tasksByStatus['Completed']); ?> completed
+                </span>
             </div>
 
             <!-- Kanban Board -->
@@ -137,64 +131,6 @@
     </div>
 </div>
 
-<!-- Create Task Modal -->
-<div class="modal-overlay" id="createTaskModal">
-    <div class="modal">
-        <div class="modal-header">
-            <h3>New Housekeeping Task</h3>
-            <button class="modal-close">&times;</button>
-        </div>
-        <form method="POST" action="<?php echo url('housekeeping', ['action' => 'create']); ?>">
-            <?php csrfField(); ?>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="room_id" class="form-label">Room</label>
-                    <select id="room_id" name="room_id" class="form-control" required>
-                        <option value="">-- Select Room --</option>
-                        <?php foreach ($rooms as $rm): ?>
-                            <option value="<?php echo $rm['id']; ?>">Room <?php echo sanitize($rm['room_number']); ?> (<?php echo sanitize($rm['type']); ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="task_type" class="form-label">Task Type</label>
-                        <select id="task_type" name="task_type" class="form-control" required>
-                            <?php foreach (TASK_TYPES as $t): ?>
-                                <option value="<?php echo $t; ?>"><?php echo $t; ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="priority" class="form-label">Priority</label>
-                        <select id="priority" name="priority" class="form-control" required>
-                            <?php foreach (TASK_PRIORITIES as $p): ?>
-                                <option value="<?php echo $p; ?>" <?php echo $p === 'Medium' ? 'selected' : ''; ?>><?php echo $p; ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label for="assigned_to" class="form-label">Assign To</label>
-                    <select id="assigned_to" name="assigned_to" class="form-control">
-                        <option value="">-- Unassigned --</option>
-                        <?php foreach ($staff as $s): ?>
-                            <option value="<?php echo $s['id']; ?>"><?php echo sanitize($s['full_name']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="notes" class="form-label">Notes</label>
-                    <textarea id="notes" name="notes" class="form-control" rows="2" placeholder="Additional instructions..."></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
-                <button type="submit" class="btn btn-primary">Create Task</button>
-            </div>
-        </form>
-    </div>
-</div>
 
 <script src="<?php echo asset('js/main.js'); ?>"></script>
 </body>

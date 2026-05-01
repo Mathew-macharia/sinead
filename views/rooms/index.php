@@ -59,11 +59,13 @@
                                     'Deluxe'   => 'room-deluxe.png',
                                     'Suite'    => 'room-suite.png'
                                 ];
-                                $roomImage = $imageMap[$room['type']] ?? 'room-standard.png';
+                                $roomImage = !empty($room['image_path'])
+                                    ? asset($room['image_path'])
+                                    : asset('images/' . ($imageMap[$room['type']] ?? 'room-standard.png'));
                             ?>
                             <div class="room-card">
-                                <img src="<?php echo asset("images/{$roomImage}"); ?>" 
-                                     alt="<?php echo sanitize($room['type']); ?> room" 
+                                <img src="<?php echo $roomImage; ?>"
+                                     alt="<?php echo sanitize($room['type']); ?> room"
                                      class="room-card-image"
                                      loading="lazy">
                                 <div class="room-card-body">

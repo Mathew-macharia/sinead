@@ -119,10 +119,14 @@ function handleCreateRoom(PDO $db): void
         }
 
         if (empty($errors)) {
+            $imagePath = processRoomImageUpload($errors, $formData['room_number']);
+        }
+
+        if (empty($errors)) {
             try {
                 $stmt = $db->prepare("
-                    INSERT INTO rooms (room_number, type, floor, price_per_night, status, description)
-                    VALUES (:room_number, :type, :floor, :price, :status, :description)
+                    INSERT INTO rooms (room_number, type, floor, price_per_night, status, description, image_path)
+                    VALUES (:room_number, :type, :floor, :price, :status, :description, :image_path)
                 ");
                 $stmt->execute([
                     ':room_number' => $formData['room_number'],
@@ -130,7 +134,8 @@ function handleCreateRoom(PDO $db): void
                     ':floor'       => (int) $formData['floor'],
                     ':price'       => (float) $formData['price_per_night'],
                     ':status'      => $formData['status'] ?? 'Available',
-                    ':description' => $formData['description'] ?? ''
+                    ':description' => $formData['description'] ?? '',
+                    ':image_path'  => $imagePath ?? null
                 ]);
 
                 logActivity('Room Created', "Room {$formData['room_number']} ({$formData['type']}) added.");
@@ -188,11 +193,19 @@ function handleEditRoom(PDO $db): void
         }
 
         if (empty($errors)) {
+            $newImagePath = processRoomImageUpload($errors, $formData['room_number']);
+        }
+
+        if (empty($errors)) {
+            // Use newly uploaded image, or keep the existing one
+            $imagePath = $newImagePath ?? ($room['image_path'] ?? null);
+
             try {
                 $stmt = $db->prepare("
-                    UPDATE rooms SET 
+                    UPDATE rooms SET
                         room_number = :room_number, type = :type, floor = :floor,
-                        price_per_night = :price, status = :status, description = :description
+                        price_per_night = :price, status = :status, description = :description,
+                        image_path = :image_path
                     WHERE id = :id
                 ");
                 $stmt->execute([
@@ -202,8 +215,17 @@ function handleEditRoom(PDO $db): void
                     ':price'       => (float) $formData['price_per_night'],
                     ':status'      => $formData['status'],
                     ':description' => $formData['description'] ?? '',
+                    ':image_path'  => $imagePath,
                     ':id'          => $roomId
                 ]);
+
+                // Delete old image file if a new one was uploaded
+                if ($newImagePath && !empty($room['image_path'])) {
+                    $oldFile = ASSETS_PATH . '/' . $room['image_path'];
+                    if (is_file($oldFile)) {
+                        @unlink($oldFile);
+                    }
+                }
 
                 logActivity('Room Updated', "Room {$formData['room_number']} updated.");
                 setFlash('success', "Room {$formData['room_number']} has been updated.");
@@ -216,6 +238,47 @@ function handleEditRoom(PDO $db): void
     }
 
     require_once VIEWS_PATH . '/rooms/form.php';
+}
+
+/**
+ * Validate and save an uploaded room image.
+ * Returns the relative asset path on success, null if no file was uploaded, or sets $errors on failure.
+ */
+function processRoomImageUpload(array &$errors, string $roomNumber): ?string
+{
+    if (empty($_FILES['room_image']['name'])) {
+        return null; // no file chosen — caller keeps existing value
+    }
+
+    $file = $_FILES['room_image'];
+
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        $errors[] = 'Image upload failed (error code ' . $file['error'] . ').';
+        return null;
+    }
+
+    if ($file['size'] > ROOM_IMAGE_MAX_SIZE) {
+        $errors[] = 'Image must be 2 MB or smaller.';
+        return null;
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime  = $finfo->file($file['tmp_name']);
+    if (!in_array($mime, ROOM_IMAGE_ALLOWED_TYPES, true)) {
+        $errors[] = 'Only JPG, PNG, and WebP images are allowed.';
+        return null;
+    }
+
+    $ext      = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $filename = 'room-' . preg_replace('/[^a-z0-9]/i', '', $roomNumber) . '-' . uniqid() . '.' . strtolower($ext);
+    $destPath = ROOM_IMAGES_PATH . '/' . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $destPath)) {
+        $errors[] = 'Could not save the uploaded image. Check folder permissions.';
+        return null;
+    }
+
+    return ROOM_IMAGES_URL . '/' . $filename;
 }
 
 /**

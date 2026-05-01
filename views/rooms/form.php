@@ -30,7 +30,7 @@
                             </div>
                         <?php endif; ?>
 
-                        <form method="POST" data-validate>
+                        <form method="POST" enctype="multipart/form-data" data-validate>
                             <?php csrfField(); ?>
 
                             <div class="form-row">
@@ -73,8 +73,27 @@
 
                             <div class="form-group">
                                 <label for="description" class="form-label">Description</label>
-                                <textarea id="description" name="description" class="form-control" rows="3" 
+                                <textarea id="description" name="description" class="form-control" rows="3"
                                           placeholder="Room features and amenities..."><?php echo sanitize($formData['description'] ?? ''); ?></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="room_image" class="form-label">Room Photo</label>
+                                <?php if (!empty($formData['image_path'])): ?>
+                                    <div style="margin-bottom: var(--space-sm);">
+                                        <img id="currentRoomImage"
+                                             src="<?php echo asset($formData['image_path']); ?>"
+                                             alt="Current room photo"
+                                             style="width: 100%; max-width: 320px; height: 180px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
+                                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Current photo — upload a new one to replace it.</p>
+                                    </div>
+                                <?php endif; ?>
+                                <input type="file" id="room_image" name="room_image" class="form-control"
+                                       accept=".jpg,.jpeg,.png,.webp"
+                                       onchange="previewRoomImage(this)">
+                                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">JPG, PNG or WebP — max 2 MB. Leave empty to keep the current photo.</p>
+                                <img id="roomImagePreview" src="" alt="Preview"
+                                     style="display:none; margin-top: var(--space-sm); width: 100%; max-width: 320px; height: 180px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
                             </div>
 
                             <div class="card-footer" style="padding: 0; border: none; margin-top: var(--space-lg);">
@@ -123,5 +142,20 @@
     </div>
 </div>
 <script src="<?php echo asset('js/main.js'); ?>"></script>
+<script>
+function previewRoomImage(input) {
+    var preview = document.getElementById('roomImagePreview');
+    var current = document.getElementById('currentRoomImage');
+    if (input.files && input.files[0]) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+            if (current) current.style.display = 'none';
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+</script>
 </body>
 </html>

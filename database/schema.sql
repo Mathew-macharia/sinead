@@ -52,6 +52,7 @@ CREATE TABLE rooms (
     price_per_night DECIMAL(10, 2) NOT NULL,
     status          ENUM('Available', 'Occupied', 'Maintenance') NOT NULL DEFAULT 'Available',
     description     TEXT           DEFAULT NULL,
+    image_path      VARCHAR(255)   DEFAULT NULL COMMENT 'Relative path under assets/, e.g. images/rooms/room-101-abc.jpg',
     created_at      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 

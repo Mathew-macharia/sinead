@@ -26,6 +26,10 @@ define('ASSETS_PATH', BASE_PATH . '/assets');
 define('MIDDLEWARE_PATH', BASE_PATH . '/middleware');
 define('MODELS_PATH', BASE_PATH . '/models');
 define('SERVICES_PATH', BASE_PATH . '/services');
+define('ROOM_IMAGES_PATH', ASSETS_PATH . '/images/rooms');
+define('ROOM_IMAGES_URL', 'images/rooms');
+define('ROOM_IMAGE_MAX_SIZE', 2 * 1024 * 1024); // 2 MB
+define('ROOM_IMAGE_ALLOWED_TYPES', ['image/jpeg', 'image/png', 'image/webp']);
 
 // ─── URL Configuration ──────────────────────────────────────────────────────
 // Auto-detect the base URL from server variables
