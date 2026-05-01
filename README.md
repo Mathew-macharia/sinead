@@ -18,7 +18,7 @@ This project follows **Agile Scrum** methodology and demonstrates modern **Softw
 - **Automated Billing** -- Invoice generation on check-out with line items, payment recording, printable invoices
 - **Notifications** -- Email and SMS notifications to guests on booking confirmation, check-in, check-out, and cancellation. All attempts are logged to the database
 - **Reports & Analytics** -- Revenue trends, occupancy rates, room utilization with interactive Chart.js visualizations
-- **Housekeeping** -- Kanban-style task board (Pending/In Progress/Completed) with room-type-based priority levels and automatic room status restoration on task completion
+- **Housekeeping** -- Kanban-style task board (Pending/In Progress/Completed) with room-type-based priority levels, automatic room status restoration on task completion, admin task creation modal, and staff assignment/reassignment workflow
 - **User Management** -- Admin panel for creating, editing, and deactivating staff accounts
 - **Overdue Stay Alerts** -- Admin dashboard automatically flags guests still checked in past their checkout date
 
@@ -165,7 +165,7 @@ sinead/
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/sinead.git
+   git clone https://github.com/Mathew-macharia/sinead.git
    cd sinead
    ```
 
@@ -179,12 +179,17 @@ sinead/
 
 3. **Configure the database connection**
 
-   Open `config/database.php` and update the credentials if needed:
+   `config/database.php` is gitignored (it contains credentials). Copy the example and update:
+   ```bash
+   cp config/database.php.example config/database.php
+   ```
+   Then open `config/database.php` and set your MySQL credentials:
    ```php
-   private static string $host     = 'localhost';
-   private static string $dbName   = 'sinead_hotel';
-   private static string $username = 'root';
-   private static string $password = '';  // update this
+   private static $host     = '127.0.0.1';
+   private static $port     = 3306;
+   private static $dbName   = 'sinead_hotel';
+   private static $username = 'root';
+   private static $password = '';  // update this
    ```
 
 4. **Start the development server**
